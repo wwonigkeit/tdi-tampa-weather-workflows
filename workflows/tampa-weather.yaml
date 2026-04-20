@@ -1,0 +1,93 @@
+direktiv_api: workflow/v1
+
+description: >
+  Tampa weather as JSON: geocode and forecast via http-request; pick Tampa (FL) and
+  assemble/verify coordinates in Python.
+
+functions:
+  - id: http-request
+    service: /services/http-request.yaml
+    type: knative-system
+
+  - id: python
+    service: /services/python.yaml
+    type: knative-system
+
+states:
+  - id: fetch-geocode
+    type: action
+    log: Open-Meteo geocoding API — resolve Tampa
+    action:
+      function: http-request
+      input:
+        method: GET
+        url: https://geocoding-api.open-meteo.com/v1/search?name=Tampa&count=10&language=en&format=json
+    transform: 'jq(. + {geocode_response: .return[0].result} | del(.return))'
+    transition: pick-tampa-place
+
+  - id: pick-tampa-place
+    type: action
+    log: Python — choose Tampa, Florida from geocode results
+    action:
+      function: python
+      files:
+        - key: /code/pick_tampa_place.py
+          scope: file
+          as: pick_tampa_place.py
+      input:
+        files:
+          - name: geocode.json
+            content: |
+              jq(.geocode_response | tojson)
+        data:
+          commands:
+            - command: python3 pick_tampa_place.py
+    transform: |
+      jq(
+        . + {tampa: (.return[0].Output)}
+        | del(.geocode_response, .return)
+      )
+    transition: fetch-forecast
+
+  - id: fetch-forecast
+    type: action
+    log: Open-Meteo forecast API — current weather for geocoded coordinates
+    action:
+      function: http-request
+      input:
+        method: GET
+        url: 'jq("https://api.open-meteo.com/v1/forecast?latitude=" + (.tampa.latitude | tostring) + "&longitude=" + (.tampa.longitude | tostring) + "&current_weather=true")'
+    transform: 'jq(. + {forecast_response: .return[0].result} | del(.return))'
+    transition: assemble-response
+
+  - id: assemble-response
+    type: action
+    log: Python — verify coordinates and build response JSON
+    action:
+      function: python
+      files:
+        - key: /code/assemble_tampa_response.py
+          scope: file
+          as: assemble_tampa_response.py
+      input:
+        files:
+          - name: tampa.json
+            content: |
+              jq(.tampa | tojson)
+          - name: forecast.json
+            content: |
+              jq(.forecast_response | tojson)
+        data:
+          commands:
+            - command: python3 assemble_tampa_response.py
+    transform: |
+      jq(
+        try (
+          (.return[0].Output)
+        ) catch (
+          {
+            error: "invalid_python_output",
+            raw: .return[0].Output
+          }
+        )
+      )

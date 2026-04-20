@@ -1,0 +1,56 @@
+####################################################################################################################
+#
+# Tampa weather — GET returns JSON (http-request for Open-Meteo APIs; Python for pick + assembly)
+#
+####################################################################################################################
+
+x-direktiv-api: endpoint/v2
+x-direktiv-config:
+  allow_anonymous: true
+  path: /weather/tampa
+  plugins:
+    auth: []
+    inbound:
+      - type: request-convert
+        configuration:
+          omit_headers: false
+          omit_queries: false
+          omit_body: false
+          omit_consumer: false
+    target:
+      type: target-flow
+      configuration:
+        async: false
+        flow: /workflows/tampa-weather.yaml
+        content_type: application/json
+    outbound: []
+get:
+  summary: Tampa, FL current weather (JSON)
+  description: >
+    Geocoding and forecast calls use the http-request service; Python selects Tampa (FL)
+    from geocode results, then verifies coordinates against the forecast payload and
+    assembles the JSON response.
+  operationId: getTampaWeather
+  responses:
+    "200":
+      description: Geocoding reference, verification metadata, and full weather payload
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              reference:
+                type: object
+              verification:
+                type: object
+              weather:
+                type: object
+    "500":
+      description: Workflow or upstream HTTP failure
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
