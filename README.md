@@ -54,3 +54,7 @@ python3 assemble_tampa_response.py
 ## Deploy
 
 Sync this tree into your Direktiv namespace (same process you use for other `tdi-*-workflows` folders in this repo): gateways and workflows must land at the paths referenced in the YAML (`/workflows/tampa-weather.yaml`, etc.).
+
+## Static HTML preview
+
+`../static/tampa-weather.html` is a single-file dashboard: paste workflow JSON into the `<script type="application/json" id="snapshot-data">` block and open the file in a browser (hero image, weather card, Leaflet map, expandable raw JSON). Requires network access for fonts, Unsplash hero image, Leaflet, and OSM tiles.
