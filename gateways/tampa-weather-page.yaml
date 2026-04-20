@@ -1,0 +1,64 @@
+####################################################################################################################
+#
+# Dynamic HTML weather page — GET ?location=City  (Mustache + get-weather-json subflow)
+#
+####################################################################################################################
+
+x-direktiv-api: endpoint/v2
+x-direktiv-config:
+  allow_anonymous: true
+  path: /weather/page
+  plugins:
+    auth: []
+    inbound:
+      - type: request-convert
+        configuration:
+          omit_headers: false
+          omit_queries: false
+          omit_body: false
+          omit_consumer: false
+    target:
+      type: target-flow
+      configuration:
+        async: false
+        flow: /workflows/weather-page.yaml
+        content_type: application/json
+    outbound:
+      - type: js-outbound
+        configuration:
+          script: |
+            var raw = input["Body"]
+            if (raw === null || raw === undefined) {
+              return
+            }
+            var s = (typeof raw === "string") ? raw : String(raw)
+            var b
+            try {
+              b = JSON.parse(s)
+            } catch (e) {
+              return
+            }
+            if (b && typeof b === "object" && b["result"] !== undefined) {
+              input["Body"] = b["result"]
+            }
+            input["Headers"].Add("Content-Type", "text/html; charset=utf-8")
+get:
+  summary: Weather dashboard HTML for a chosen location
+  description: >
+    Query parameter `location` (optional, default Tampa) geocoded via Open-Meteo; returns
+    a rendered HTML page with current weather. Same data pipeline as JSON endpoints.
+  operationId: getWeatherPage
+  parameters:
+    - name: location
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Place name to geocode (e.g. Miami, London, Tokyo)
+  responses:
+    "200":
+      description: text/html dashboard
+      content:
+        text/html:
+          schema:
+            type: string

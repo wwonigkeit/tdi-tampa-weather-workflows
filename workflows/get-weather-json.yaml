@@ -1,0 +1,96 @@
+direktiv_api: workflow/v1
+
+description: >
+  Geocode a free-text location (Open-Meteo), fetch current weather JSON, verify coordinates.
+  Input: { "location_query": "Tampa" } (or any place name).
+
+functions:
+  - id: http-request
+    service: /services/http-request.yaml
+    type: knative-system
+
+  - id: python
+    service: /services/python.yaml
+    type: knative-system
+
+states:
+  - id: fetch-geocode
+    type: action
+    log: Open-Meteo geocoding API
+    action:
+      function: http-request
+      input:
+        method: GET
+        url: 'jq("https://geocoding-api.open-meteo.com/v1/search?name=" + (.location_query | @uri) + "&count=10&language=en&format=json")'
+    transform: 'jq(. + {geocode_response: .return[0].result, geocode_request_url: ("https://geocoding-api.open-meteo.com/v1/search?name=" + (.location_query | @uri) + "&count=10&language=en&format=json")} | del(.return))'
+    transition: pick-place
+
+  - id: pick-place
+    type: action
+    log: Python — choose first geocode hit (API relevance order)
+    action:
+      function: python
+      files:
+        - key: /code/pick_place.py
+          scope: file
+          as: pick_place.py
+      input:
+        files:
+          - name: geocode.json
+            content: |
+              jq(.geocode_response | tojson)
+        data:
+          commands:
+            - command: python3 pick_place.py
+              envs:
+                - name: GEOCODE_REQUEST_URL
+                  value: jq(.geocode_request_url)
+    transform: |
+      jq(
+        . + {place: (.return[0].Output )}
+        | del(.geocode_response, .geocode_request_url, .return)
+      )
+    transition: fetch-forecast
+
+  - id: fetch-forecast
+    type: action
+    log: Open-Meteo forecast API — current weather
+    action:
+      function: http-request
+      input:
+        method: GET
+        url: 'jq("https://api.open-meteo.com/v1/forecast?latitude=" + (.place.latitude | tostring) + "&longitude=" + (.place.longitude | tostring) + "&current_weather=true")'
+    transform: 'jq(. + {forecast_response: .return[0].result} | del(.return))'
+    transition: assemble-response
+
+  - id: assemble-response
+    type: action
+    log: Python — verify coordinates and build JSON
+    action:
+      function: python
+      files:
+        - key: /code/assemble_weather_response.py
+          scope: file
+          as: assemble_weather_response.py
+      input:
+        files:
+          - name: place.json
+            content: |
+              jq(.place | tojson)
+          - name: forecast.json
+            content: |
+              jq(.forecast_response | tojson)
+        data:
+          commands:
+            - command: python3 assemble_weather_response.py
+    transform: |
+      jq(
+        try (
+          (.return[0].Output )
+        ) catch (
+          {
+            error: "invalid_python_output",
+            raw: .return[0].Output
+          }
+        )
+      )

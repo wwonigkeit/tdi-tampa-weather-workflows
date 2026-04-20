@@ -1,60 +1,71 @@
 # Tampa weather (Direktiv demo)
 
-Demo namespace bundle: a **GET** API gateway runs a workflow that returns **Tampa, Florida** current weather as JSON. Geocoding and forecast calls use the **`http-request`** system service; short **Python** steps pick the correct city from geocode results and assemble the final payload (including a latitude/longitude check against the forecast document).
+Weather data from [Open-Meteo](https://open-meteo.com/) (geocode + forecast) using the **`http-request`** service, **Python** for place selection and JSON assembly, and optionally **`gcr.io/direktiv/functions/mustache`** for a **dynamic HTML** page (same pattern as Dell formrequest: workflow → `{ result: html }` → `js-outbound`).
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `tdi-tampa-weather-workflows/gateways/tampa-weather.yaml` | API gateway: `GET` → workflow |
-| `tdi-tampa-weather-workflows/workflows/tampa-weather.yaml` | Workflow definition |
-| `tdi-tampa-weather-workflows/code/pick_tampa_place.py` | Choose Tampa (US/FL) from geocode JSON |
-| `tdi-tampa-weather-workflows/code/assemble_tampa_response.py` | Merge + verify coords + output JSON |
+| `gateways/tampa-weather.yaml` | `GET /weather/tampa` → JSON (fixed Tampa via subflow) |
+| `gateways/tampa-weather-page.yaml` | `GET /weather/page?location=…` → **HTML** dashboard |
+| `workflows/get-weather-json.yaml` | Subflow: geocode + pick + forecast + assemble `{ reference, verification, weather }` |
+| `workflows/tampa-weather.yaml` | Calls `get-weather-json` with `location_query: Tampa` |
+| `workflows/weather-page.yaml` | Query param `location` → subflow → `build_html_context.py` → Mustache |
+| `code/pick_place.py` | First geocode hit (API relevance order) |
+| `code/assemble_weather_response.py` | Merge place + forecast; verify coordinates |
+| `code/build_html_context.py` | WMO labels, hero URL, Mustache extras |
+| `code/weather-page.mustache` | HTML template for the dynamic page |
 
-## Workflow (high level)
+## Gateways
 
-1. **fetch-geocode** — `GET` [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api) for `name=Tampa`.
-2. **pick-tampa-place** — Python reads the geocode response and emits coordinates and place metadata.
-3. **fetch-forecast** — `GET` [Open-Meteo Forecast API](https://open-meteo.com/en/docs) with `current_weather=true` for those coordinates.
-4. **assemble-response** — Python compares geocoded coordinates to the forecast document’s echoed coordinates (grid snap tolerated) and returns `{ reference, verification, weather }`.
+| Path | Response |
+|------|----------|
+| `/weather/tampa` | JSON (backward-compatible default location) |
+| `/weather/page` | `text/html` — form submits `location` (default **Tampa**) |
 
-## Gateway
+Example: `…/weather/page?location=Miami`
 
-- **Path:** `/weather/tampa` (see `gateways/tampa-weather.yaml` for full OpenAPI fragment).
-- **Method:** `GET`
-- **Auth:** `allow_anonymous: true` in the sample (tighten in production).
+## Workflows (high level)
 
-Full URL: `https://<your-direktiv-host>/ns/<namespace>/weather/tampa` (exact prefix depends on your Direktiv ingress and namespace routing).
+**`get-weather-json`** (input: `{ "location_query": "Berlin" }`):
 
-## Dependencies (namespace)
+1. Geocode `name=` + URL-encoded query  
+2. Python picks **`results[0]`**  
+3. Forecast `current_weather=true`  
+4. Python verifies grid vs geocode and returns JSON  
 
-The workflow expects these **system** services (same pattern as other demos in `tdi-demo-project`):
+**`weather-page`**: reads `query_params.location[0]`, runs the subflow, expands context for Mustache, renders **`weather-page.mustache`**, returns `{ "result": "<html>…" }`. The gateway **`js-outbound`** unwraps `result` and sets `Content-Type: text/html; charset=utf-8`.
+
+## Dependencies
 
 - `/services/http-request.yaml`
 - `/services/python.yaml`
-
-Ensure the Python and http-request images your cluster uses are available and scaled as needed.
+- **`gcr.io/direktiv/functions/mustache:1.0`** (for `/weather/page` only) — ensure the cluster can pull this image (mirror if you use a private registry).
 
 ## External APIs
 
-No API keys: [Open-Meteo](https://open-meteo.com/) public endpoints only. Respect their fair-use guidance for production.
+No API keys. Respect Open-Meteo fair-use limits in production.
 
-## Local checks (scripts only)
+## Local checks (scripts)
 
-From `tdi-tampa-weather-workflows/code/`:
+From `code/`:
 
 ```bash
 curl -sS 'https://geocoding-api.open-meteo.com/v1/search?name=Tampa&count=10&language=en&format=json' -o geocode.json
-python3 pick_tampa_place.py > tampa.json
-# build forecast URL from lat/lon in tampa.json, then:
+export GEOCODE_REQUEST_URL='https://geocoding-api.open-meteo.com/v1/search?name=Tampa&count=10&language=en&format=json'
+python3 pick_place.py > place.json
+# forecast from lat/lon in place.json
 curl -sS 'https://api.open-meteo.com/v1/forecast?latitude=...&longitude=...&current_weather=true' -o forecast.json
-python3 assemble_tampa_response.py
+python3 assemble_weather_response.py > bundle.json
+cp bundle.json weather_bundle.json
+export SEARCH_LOCATION=Tampa
+python3 build_html_context.py
 ```
+
+## Static offline preview
+
+`../static/tampa-weather.html` — paste JSON into the embedded script block; no Direktiv required.
 
 ## Deploy
 
-Sync this tree into your Direktiv namespace (same process you use for other `tdi-*-workflows` folders in this repo): gateways and workflows must land at the paths referenced in the YAML (`/workflows/tampa-weather.yaml`, etc.).
-
-## Static HTML preview
-
-`../static/tampa-weather.html` is a single-file dashboard: paste workflow JSON into the `<script type="application/json" id="snapshot-data">` block and open the file in a browser (hero image, weather card, Leaflet map, expandable raw JSON). Requires network access for fonts, Unsplash hero image, Leaflet, and OSM tiles.
+Sync this tree into your Direktiv namespace so workflows and gateways resolve (`/workflows/get-weather-json.yaml`, `/code/*.py`, `/code/weather-page.mustache`, etc.).

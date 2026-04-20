@@ -1,0 +1,89 @@
+direktiv_api: workflow/v1
+
+description: >
+  Dynamic HTML weather page: query param location → get-weather-json → Mustache template.
+
+functions:
+  - id: get-weather-json
+    workflow: /workflows/get-weather-json.yaml
+    type: subflow
+
+  - id: template-function
+    image: gcr.io/direktiv/functions/mustache:1.0
+    type: knative-workflow
+
+  - id: python
+    service: /services/python.yaml
+    type: knative-system
+
+states:
+  - id: extract-location
+    type: noop
+    transform: |
+      jq(
+        {
+          location_query: (
+            if (.query_params.location != null) and (.query_params.location | length > 0)
+            then .query_params.location[0]
+            else "Tampa"
+            end
+          )
+        }
+      )
+    transition: load-json
+
+  - id: load-json
+    type: action
+    action:
+      function: get-weather-json
+      input: 'jq({ location_query: .location_query })'
+    transform: 'jq(. + {weather_bundle: .return, search_location: .location_query} | del(.return, .location_query))'
+    transition: build-html-context
+
+  - id: build-html-context
+    type: action
+    log: Python — WMO labels and Mustache context
+    action:
+      function: python
+      files:
+        - key: /code/build_html_context.py
+          scope: file
+          as: build_html_context.py
+      input:
+        files:
+          - name: weather_bundle.json
+            content: |
+              jq(.weather_bundle | tojson)
+        data:
+          commands:
+            - command: python3 build_html_context.py
+              envs:
+                - name: SEARCH_LOCATION
+                  value: jq(.search_location)
+    transform: |
+      jq(
+        try (
+          . + {mustache_data: (.return[0].Output | try fromjson catch .)}
+          | del(.weather_bundle, .search_location, .return)
+        ) catch (
+          {
+            error: "build_context_failed",
+            raw: .return[0].Output
+          }
+        )
+      )
+    transition: render-template
+
+  - id: render-template
+    type: action
+    log: Mustache — render HTML
+    action:
+      function: template-function
+      files:
+        - key: /code/weather-page.mustache
+          scope: file
+          as: weather-page.mustache
+      input:
+        template: weather-page.mustache
+        data: jq(.mustache_data)
+    transform: 'jq({ result: (.return.mustache // .return[0].mustache) })'

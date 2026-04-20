@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{reference.place.name}} — weather</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    :root {
+      --bg-deep: #0a1628;
+      --bg-card: rgba(18, 40, 72, 0.72);
+      --accent: #3ee0b9;
+      --accent-dim: rgba(62, 224, 185, 0.15);
+      --text: #e8f1ff;
+      --muted: #8aa4c7;
+      --warn: #ffc857;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg-deep);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% -20%, rgba(62, 224, 185, 0.25), transparent 55%),
+        radial-gradient(ellipse 80% 50% at 100% 50%, rgba(56, 120, 255, 0.12), transparent 45%),
+        linear-gradient(165deg, #0a1628 0%, #0d2138 40%, #061018 100%);
+    }
+    .page { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+    .search {
+      margin-bottom: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .search label { color: var(--muted); font-size: 0.9rem; }
+    .search input[type="text"] {
+      flex: 1;
+      min-width: 180px;
+      padding: 0.55rem 0.85rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.35);
+      color: var(--text);
+      font-size: 1rem;
+    }
+    .search button {
+      padding: 0.55rem 1.1rem;
+      border-radius: 10px;
+      border: none;
+      background: var(--accent);
+      color: #061018;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .hero {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      margin-bottom: 1.75rem;
+    }
+    .hero__bg { display: block; width: 100%; height: 220px; object-fit: cover; filter: saturate(1.05) brightness(0.85); }
+    .hero__overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(to top, rgba(6, 16, 24, 0.95) 0%, rgba(6, 16, 24, 0.35) 50%, transparent 100%);
+    }
+    .hero__content {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; justify-content: flex-end;
+      padding: 1.5rem 1.75rem;
+    }
+    .hero__eyebrow {
+      font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent); font-weight: 600; margin-bottom: 0.35rem;
+    }
+    .hero__title {
+      font-size: clamp(1.75rem, 4vw, 2.35rem); font-weight: 700; margin: 0 0 0.25rem;
+      text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5);
+    }
+    .hero__meta { font-size: 0.9rem; color: var(--muted); }
+    .grid { display: grid; gap: 1.25rem; }
+    @media (min-width: 720px) {
+      .grid--split { grid-template-columns: 1.2fr 1fr; align-items: start; }
+    }
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.5rem 1.35rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    }
+    .card h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); }
+    .weather-main { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+    .weather-icon { font-size: 4.5rem; line-height: 1; filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35)); }
+    .temp { font-size: clamp(3rem, 8vw, 3.75rem); font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+    .temp .u { font-size: 42%; font-weight: 600; color: var(--muted); margin-left: 0.15em; }
+    .weather-label { margin-top: 0.35rem; font-size: 1.05rem; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 1rem;
+      margin-top: 1.35rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .stat { padding: 0.65rem 0.85rem; background: var(--accent-dim); border-radius: 12px; border: 1px solid rgba(62, 224, 185, 0.2); }
+    .stat__label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.2rem; }
+    .stat__value { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.95rem; font-weight: 500; }
+    .badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+    .badge--ok { background: rgba(62, 224, 185, 0.2); color: var(--accent); border: 1px solid rgba(62, 224, 185, 0.35); }
+    .badge--bad { background: rgba(255, 200, 87, 0.12); color: var(--warn); border: 1px solid rgba(255, 200, 87, 0.3); }
+    .map-wrap { border-radius: 14px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.08); margin-top: 0.75rem; }
+    .map-canvas { height: 260px; width: 100%; background: rgba(0, 0, 0, 0.2); }
+    .map-caption { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; }
+    dl.place-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; margin: 0; font-size: 0.9rem; }
+    dl.place-grid dt { margin: 0; color: var(--muted); font-weight: 500; }
+    dl.place-grid dd { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.82rem; }
+    .postcodes {
+      margin-top: 1rem;
+      max-height: 120px;
+      overflow-y: auto;
+      padding: 0.65rem 0.75rem;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 10px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 0.68rem;
+      line-height: 1.5;
+      color: var(--muted);
+      word-break: break-all;
+    }
+    details.raw { margin-top: 1.25rem; }
+    details.raw summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; user-select: none; }
+    details.raw pre {
+      margin: 0.75rem 0 0;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 12px;
+      overflow: auto;
+      font-size: 0.68rem;
+      line-height: 1.45;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .footnote { margin-top: 2rem; font-size: 0.78rem; color: var(--muted); text-align: center; opacity: 0.85; }
+    .footnote a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <form class="search" method="get" action="">
+      <label for="loc">Location</label>
+      <input id="loc" type="text" name="location" value="{{search_location}}" placeholder="City or place name" autocomplete="off" />
+      <button type="submit">Show weather</button>
+    </form>
+
+    <header class="hero">
+      <img class="hero__bg" src="{{hero_image_url}}" width="1600" height="900" alt="" />
+      <div class="hero__overlay"></div>
+      <div class="hero__content">
+        <div class="hero__eyebrow">Open-Meteo · Current weather</div>
+        <h1 class="hero__title">{{reference.place.name}}{{#reference.place.admin1}}, {{reference.place.admin1}}{{/reference.place.admin1}}</h1>
+        <p class="hero__meta">{{reference.place.country}}{{#reference.place.population}} · Pop. {{reference.place.population}}{{/reference.place.population}}</p>
+      </div>
+    </header>
+
+    <div class="grid grid--split">
+      <section class="card">
+        <h2>Right now</h2>
+        <div class="weather-main">
+          <div class="weather-icon" aria-hidden="true">{{wmo_emoji}}</div>
+          <div>
+            <div class="temp">{{weather.current_weather.temperature}}<span class="u">{{weather.current_weather_units.temperature}}</span></div>
+            <p class="weather-label">{{wmo_label}}</p>
+            {{#weather.current_weather.time}}
+            <p class="weather-label" style="font-size:0.9rem;color:var(--muted)">Observation {{weather.current_weather.time}}</p>
+            {{/weather.current_weather.time}}
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="stat__label">Wind</div><div class="stat__value">{{weather.current_weather.windspeed}} {{weather.current_weather_units.windspeed}}</div></div>
+          <div class="stat"><div class="stat__label">Wind direction</div><div class="stat__value">{{weather.current_weather.winddirection}}°</div></div>
+          <div class="stat"><div class="stat__label">WMO code</div><div class="stat__value">{{weather.current_weather.weathercode}}</div></div>
+          <div class="stat"><div class="stat__label">Model elevation</div><div class="stat__value">{{weather.elevation}} m</div></div>
+        </div>
+      </section>
+
+      <aside class="card">
+        <h2>Place &amp; checks</h2>
+        <p style="margin:0 0 0.75rem">
+          {{#verification.coordinates_match}}
+          <span class="badge badge--ok">✓ Coordinates verified</span>
+          {{/verification.coordinates_match}}
+          {{^verification.coordinates_match}}
+          <span class="badge badge--bad">Coordinates mismatch</span>
+          {{/verification.coordinates_match}}
+        </p>
+        <dl class="place-grid">
+          <dt>County / region</dt><dd>{{reference.place.admin2}}</dd>
+          <dt>Timezone</dt><dd>{{reference.place.timezone}}</dd>
+          <dt>Coords (geocode)</dt><dd>{{verification.coordinates_from_geocode.latitude}}, {{verification.coordinates_from_geocode.longitude}}</dd>
+          <dt>Forecast grid</dt><dd>{{weather.latitude}}, {{weather.longitude}}</dd>
+        </dl>
+        <div class="map-wrap"><div class="map-canvas" id="map-canvas"></div></div>
+        <p class="map-caption">Map · OpenStreetMap · Geocode center</p>
+        {{#postcodes_short}}
+        <h2 style="margin-top:1.25rem">Postcodes (sample)</h2>
+        <div class="postcodes">{{postcodes_short}}</div>
+        {{/postcodes_short}}
+      </aside>
+    </div>
+
+    <details class="raw"><summary>Raw JSON</summary><pre>{{{json_pretty}}}</pre></details>
+    <p class="footnote">Rendered server-side (Mustache). Data from <a href="https://open-meteo.com/" rel="noopener">Open-Meteo</a>.</p>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    (function () {
+      var lat = {{{weather.latitude}}};
+      var lon = {{{weather.longitude}}};
+      if (typeof L !== "undefined" && typeof lat === "number" && typeof lon === "number") {
+        var map = L.map("map-canvas", { scrollWheelZoom: false }).setView([lat, lon], 11);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "&copy; OpenStreetMap",
+          maxZoom: 19
+        }).addTo(map);
+        L.marker([lat, lon]).addTo(map);
+        setTimeout(function () { map.invalidateSize(); }, 50);
+      }
+    })();
+  </script>
+</body>
+</html>
