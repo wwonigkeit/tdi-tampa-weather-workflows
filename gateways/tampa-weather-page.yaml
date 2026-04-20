@@ -39,7 +39,7 @@ x-direktiv-config:
               return
             }
             if (b && typeof b === "object" && b["result"] !== undefined) {
-              input["Body"] = b["result"]
+              input["Body"] = b["result"]["result"]
             }
             input["Headers"].Add("Content-Type", "text/html; charset=utf-8")
 get:
